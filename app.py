@@ -80,8 +80,20 @@ st.caption("💡 Ensure your `.txt` files are properly / directly extracted from
 st.caption("✈️STEP OF PROPER USE🙌")
 st.caption("Step-1 : Search for 'sales register' under 'FPS tab' in 'AEPDS site' and get you data ")
 st.caption("Step-2 : Copy data from starting ration card include s.no (❌ without  heading)")
+file_path = "example.txt"
+# Open and make it downloadable
+with open(file_path, "rb") as file:
+    st.download_button(
+        label="⬇️ Download example.txt",
+        data=file,
+        file_name="example.txt",  # This is the name it will be downloaded as
+        mime="text/plain"
+    )
 st.caption("Step-3 : Create text file and paste it in text file")
 st.caption("Step-4 : Upload the text file on our site/app")
+
 st.markdown("---")
 st.caption("❤️VISHAL KUMAR✌️")
+st.caption("Help : insta- @ibe.vishal")
+
 
