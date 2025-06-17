@@ -61,7 +61,7 @@ if file1 and file2:
     st.info(f"🧮 Total Missing: **{len(left_cards)}**")
     if left_cards:
         left_details = [
-            f"{card}   ➤  [{prev_data[card][0]}]   👀    Wheat: {prev_data[card][1]} kg   🍵   Rice: {prev_data[card][2]} kg"
+            f"{card}   ➤  {prev_data[card][0]}   👀    Wheat: {prev_data[card][1]} kg   🍵   Rice: {prev_data[card][2]} kg"
             for card in left_cards
         ]
         st.text_area("Details:", "\n".join(left_details), height=500)
@@ -70,7 +70,7 @@ if file1 and file2:
     st.info(f"🧮 Total New: **{len(new_cards)}**")
     if new_cards:
         new_details = [
-            f"{card}   ➤   [{curr_data[card][0]}]   👀    Wheat: {curr_data[card][1]} kg   🍵   Rice: {curr_data[card][2]} kg"
+            f"{card}   ➤   {curr_data[card][0]}   👀    Wheat: {curr_data[card][1]} kg   🍵   Rice: {curr_data[card][2]} kg"
             for card in new_cards
         ]
         st.text_area("Details:", "\n".join(new_details), height=500)
@@ -97,3 +97,4 @@ st.caption("❤️VISHAL KUMAR✌️")
 st.caption("Help : insta- @ibe.vishal")
 
 
+#python -m streamlit run app.py to run
