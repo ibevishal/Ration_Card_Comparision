@@ -280,13 +280,22 @@ if not (file1 and file2):
     st.warning("⚠️ Please upload both files to proceed.")
 
 #admin part start
+
 from dotenv import load_dotenv
 import os
 
-# load .env admin credentials
-load_dotenv()
-ADMIN_USER = os.getenv("ADMIN_USER")
-ADMIN_PASS = os.getenv("ADMIN_PASS")
+
+
+# check if .env exists
+if os.path.exists(".env"):
+    load_dotenv()
+    ADMIN_USER = os.getenv("ADMIN_USER")
+    ADMIN_PASS = os.getenv("ADMIN_PASS")
+
+else:
+    ADMIN_USER = st.secrets["ADMIN_USER"]
+    ADMIN_PASS = st.secrets["ADMIN_PASS"]
+
 
 # inside your sidebar (or wherever you want)
 with st.sidebar.expander("🔒 Admin Login"):
