@@ -288,7 +288,7 @@ import os
 
 # check if .env exists
 if os.path.exists(".env"):
-    from dotenv import load_dotenvz
+    from dotenv import load_dotenv
     load_dotenv()
     ADMIN_USER = os.getenv("ADMIN_USER")
     ADMIN_PASS = os.getenv("ADMIN_PASS")
