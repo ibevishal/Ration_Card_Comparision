@@ -281,13 +281,14 @@ if not (file1 and file2):
 
 #admin part start
 
-from dotenv import load_dotenv
+
 import os
 
 
 
 # check if .env exists
 if os.path.exists(".env"):
+    from dotenv import load_dotenvz
     load_dotenv()
     ADMIN_USER = os.getenv("ADMIN_USER")
     ADMIN_PASS = os.getenv("ADMIN_PASS")
