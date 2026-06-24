@@ -6,7 +6,17 @@ import csv
 import re
 from datetime import datetime
 import streamlit.web as st_web
+import subprocess
+import os
 
+if not os.path.exists("/home/adminuser/.cache/ms-playwright"):
+    try:
+        subprocess.run(
+            ["playwright", "install", "chromium"],
+            check=False
+        )
+    except Exception:
+        pass
 try:
     from playwright.sync_api import sync_playwright
     PLAYWRIGHT_AVAILABLE = True
