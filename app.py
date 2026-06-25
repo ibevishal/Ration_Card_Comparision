@@ -556,7 +556,7 @@ if data_mode == "Fetch from Bihar ePOS (Beta)":
         fps_keys = list(fps_list.keys()) if fps_list else ["No FPS Found"]
         # Streamlit selectbox 'index' must be within range. On production, FPS fetch can fail,
         # so default_index must be clamped.
-        default_index = 1096 if fps_keys else 0
+        default_index = min(1096, len(fps_keys)-1) if fps_keys else 0
         selected_fps = st.selectbox("Select FPS", fps_keys, index=default_index)
 
         if st.button("Fetch Data"):
