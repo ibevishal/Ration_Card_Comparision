@@ -455,12 +455,23 @@ def get_fps_list(dist_code):
     if not PLAYWRIGHT_AVAILABLE or not BS4_AVAILABLE:
         raise RuntimeError("playwright and/or bs4 not available in this environment")
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+    headless=True,
+    args=[
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+    ],
+)
+
         page = browser.new_page()
+
         page.goto(
-            "https://epos.bihar.gov.in/FPS_Trans_Abstract.jsp",
-            wait_until="networkidle",
-        )
+    "https://epos.bihar.gov.in/FPS_Trans_Abstract.jsp",
+    wait_until="domcontentloaded",
+    timeout=60000,
+)
 
         response = page.request.post(
             "https://epos.bihar.gov.in/AjaxExecution.jsp",
