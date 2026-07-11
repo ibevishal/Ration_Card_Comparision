@@ -490,30 +490,38 @@ def get_fps_list(dist_code):
 
 @st.cache_data(ttl=300)
 def fetch_epos_html(dist_code, fps_id, month, year):
-    if not PLAYWRIGHT_AVAILABLE:
-        raise RuntimeError("playwright not available in this environment")
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(
-            "https://epos.bihar.gov.in/FPS_Trans_Abstract.jsp",
-            wait_until="networkidle",
+    import requests
+
+    session = requests.Session()
+
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/149.0.0.0 Safari/537.36"
         )
+    })
 
-        response = page.request.post(
-            "https://epos.bihar.gov.in/FPS_Trans_Details.jsp",
-            form={
-                "dist_code": str(dist_code),
-                "fps_id": str(fps_id),
-                "month": str(month),
-                "year": str(year),
-            },
-        )
+    session.get(
+        "https://epos.bihar.gov.in/FPS_Trans_Abstract.jsp",
+        timeout=60
+    )
 
-        html = response.text()
-        browser.close()
+    response = session.post(
+        "https://epos.bihar.gov.in/FPS_Trans_Details.jsp",
+        data={
+            "dist_code": str(dist_code),
+            "fps_id": str(fps_id),
+            "month": str(month),
+            "year": str(year),
+        },
+        timeout=60
+    )
 
-    return html
+    response.raise_for_status()
+
+    return response.text
 
 
 # Choose data source
