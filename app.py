@@ -6,17 +6,9 @@ import csv
 import re
 from datetime import datetime
 import streamlit.web as st_web
-import subprocess
 import os
 
-if not os.path.exists("/home/adminuser/.cache/ms-playwright"):
-    try:
-        subprocess.run(
-            ["playwright", "install", "chromium"],
-            check=False
-        )
-    except Exception:
-        pass
+
 try:
     from playwright.sync_api import sync_playwright
     PLAYWRIGHT_AVAILABLE = True
@@ -537,81 +529,177 @@ data_mode = st.radio(
 # Bihar ePOS fetch UI (before upload)
 # get_fps_list / fetch_epos_html are defined later in the file in this version.
 # To prevent NameError, we guard the button action and FPS listing.
+# Bihar ePOS fetch UI (before upload)
 if data_mode == "Fetch from Bihar ePOS (Beta)":
-    # Prevent NameError if function definitions are reordered.
-    # (The functions exist later, but in case of execution issues we guard the call.)
 
-    dist_code = st.text_input("District Code", value="216")
+    dist_code = st.text_input(
+        "District Code",
+        value="216"
+    )
 
+    month1 = st.selectbox(
+        "Previous Month",
+        range(1, 13),
+        index=4
+    )
 
-    month1 = st.selectbox("Previous Month", range(1, 13), index=4)
-    month2 = st.selectbox("Current Month", range(1, 13), index=5)
+    month2 = st.selectbox(
+        "Current Month",
+        range(1, 13),
+        index=5
+    )
 
-    year = st.number_input("Year", value=2026)
+    year = st.number_input(
+        "Year",
+        value=2026
+    )
 
+    # Store FPS list in session state
+    if "fps_list" not in st.session_state:
+        st.session_state["fps_list"] = {}
 
+    # FPS list loads ONLY after clicking this button
+    if st.button("Load FPS List"):
 
-    if dist_code.strip():
-        # Ensure Playwright and BeautifulSoup are available before attempting fetch
         if not PLAYWRIGHT_AVAILABLE or not BS4_AVAILABLE:
-            st.error("Bihar ePOS fetch disabled: missing dependencies (playwright or bs4).")
-            fps_list = {}
+            st.error(
+                "Bihar ePOS fetch disabled: "
+                "missing dependencies "
+                "(playwright or bs4)."
+            )
+
         else:
             try:
-                fps_list = get_fps_list(dist_code)
+                with st.spinner("Loading FPS list..."):
+                    st.session_state["fps_list"] = (
+                        get_fps_list(dist_code)
+                    )
+
             except Exception as e:
-                st.error(f"Error retrieving FPS list: {e}")
-                fps_list = {}
+                st.error(
+                    f"Error retrieving FPS list: {e}"
+                )
 
-        # Prepare FPS list and set default selection
-        fps_keys = list(fps_list.keys()) if fps_list else ["No FPS Found"]
-        # Streamlit selectbox 'index' must be within range. On production, FPS fetch can fail,
-        # so default_index must be clamped.
-        default_index = min(1096, len(fps_keys)-1) if fps_keys else 0
-        selected_fps = st.selectbox("Select FPS", fps_keys, index=default_index)
+                st.session_state["fps_list"] = {}
 
-        if st.button("Fetch Data"):
-            if not fps_list:
-                st.error("No FPS options found for this District Code.")
-            else:
-                fps_id = fps_list[selected_fps]
-                try:
-                    prev_html = fetch_epos_html(dist_code, fps_id, month1, year)
-                    curr_html = fetch_epos_html(dist_code, fps_id, month2, year)
-                except Exception as e:
-                    st.error(f"Error fetching data: {e}")
-                    prev_html = ""
-                    curr_html = ""
+    fps_list = st.session_state["fps_list"]
 
-                st.session_state.prev_content = prev_html
-                st.session_state.curr_content = curr_html
-                st.session_state.prev_content_source = "html"
-                st.session_state.curr_content_source = "html"
-                # parse immediately and persist parsed dicts for reliable comparison
-                try:
-                    parsed_prev = extract_ration_data_from_html(prev_html)
-                    parsed_curr = extract_ration_data_from_html(curr_html)
-                except Exception:
-                    parsed_prev = {}
-                    parsed_curr = {}
-                st.session_state["prev_data"] = parsed_prev
-                st.session_state["curr_data"] = parsed_curr
-                st.session_state["prev_cards"] = set(parsed_prev.keys())
-                st.session_state["curr_cards"] = set(parsed_curr.keys())
-                # save recent entry now
-                uploaded_pair = {
-                    "prev_name": "previous.html",
-                    "curr_name": "current.html",
-                    "prev_content": prev_html,
-                    "curr_content": curr_html,
-                    "prev_source": "html",
-                    "curr_source": "html",
-                }
-                st.session_state.recent_files.insert(0, uploaded_pair)
-                st.session_state.recent_files = st.session_state.recent_files[:3]
-                st.session_state.trigger_analysis = True
+    # Prepare FPS selectbox
+    if fps_list:
+        fps_keys = list(fps_list.keys())
+    else:
+        fps_keys = ["No FPS Found"]
 
-                st.success("Data downloaded successfully")
+    default_index = min(
+        1096,
+        len(fps_keys) - 1
+    )
+
+    selected_fps = st.selectbox(
+        "Select FPS",
+        fps_keys,
+        index=default_index
+    )
+
+    # Fetch ration card data
+    if st.button("Fetch Data"):
+
+        if not fps_list:
+            st.error(
+                "No FPS options found for this District Code."
+            )
+
+        else:
+            fps_id = fps_list[selected_fps]
+
+            try:
+                with st.spinner(
+                    "Downloading ration card data..."
+                ):
+
+                    prev_html = fetch_epos_html(
+                        dist_code,
+                        fps_id,
+                        month1,
+                        year
+                    )
+
+                    curr_html = fetch_epos_html(
+                        dist_code,
+                        fps_id,
+                        month2,
+                        year
+                    )
+
+            except Exception as e:
+                st.error(
+                    f"Error fetching data: {e}"
+                )
+
+                prev_html = ""
+                curr_html = ""
+
+            # Save HTML
+            st.session_state.prev_content = prev_html
+            st.session_state.curr_content = curr_html
+
+            st.session_state.prev_content_source = "html"
+            st.session_state.curr_content_source = "html"
+
+            # Parse HTML
+            try:
+                parsed_prev = extract_ration_data_from_html(
+                    prev_html
+                )
+
+                parsed_curr = extract_ration_data_from_html(
+                    curr_html
+                )
+
+            except Exception as e:
+                st.error(
+                    f"Error parsing ration card data: {e}"
+                )
+
+                parsed_prev = {}
+                parsed_curr = {}
+
+            # Store parsed data
+            st.session_state["prev_data"] = parsed_prev
+            st.session_state["curr_data"] = parsed_curr
+
+            st.session_state["prev_cards"] = set(
+                parsed_prev.keys()
+            )
+
+            st.session_state["curr_cards"] = set(
+                parsed_curr.keys()
+            )
+
+            # Save recent comparison
+            uploaded_pair = {
+                "prev_name": "previous.html",
+                "curr_name": "current.html",
+                "prev_content": prev_html,
+                "curr_content": curr_html,
+                "prev_source": "html",
+                "curr_source": "html",
+            }
+
+            st.session_state.recent_files.insert(
+                0,
+                uploaded_pair
+            )
+
+            st.session_state.recent_files = (
+                st.session_state.recent_files[:3]
+            )
+
+            st.session_state.trigger_analysis = True
+
+            st.success(
+                "Data downloaded successfully"
+            )
                 # Temporary preview for quick verification - COMMENTED OUT
                 # try:
                 #     if prev_html:
@@ -696,7 +784,22 @@ else:
 
 
 #admin part start
+# # check if .env exists
+# if os.path.exists(".env"):
+#     try:
+#         from dotenv import load_dotenv
+#         load_dotenv()
+#         ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+#         ADMIN_PASS = os.getenv("ADMIN_PASS", "admin")
+#     except Exception:
+#         ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
+#         ADMIN_PASS = os.environ.get("ADMIN_PASS", "admin")
+# else:
+#     # Use safe defaults if secrets are not configured
+#     ADMIN_USER = st.secrets.get("ADMIN_USER", "admin")
+#     ADMIN_PASS = st.secrets.get("ADMIN_PASS", "admin")
 
+#below is for render 
 from dotenv import load_dotenv
 
 # Loads .env locally if it exists.
