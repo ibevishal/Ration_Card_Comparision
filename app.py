@@ -697,25 +697,14 @@ else:
 
 #admin part start
 
+from dotenv import load_dotenv
 
-import os
+# Loads .env locally if it exists.
+# On Render, values come from Environment Variables.
+load_dotenv()
 
-
-
-# check if .env exists
-if os.path.exists(".env"):
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-        ADMIN_USER = os.getenv("ADMIN_USER", "admin")
-        ADMIN_PASS = os.getenv("ADMIN_PASS", "admin")
-    except Exception:
-        ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
-        ADMIN_PASS = os.environ.get("ADMIN_PASS", "admin")
-else:
-    # Use safe defaults if secrets are not configured
-    ADMIN_USER = st.secrets.get("ADMIN_USER", "admin")
-    ADMIN_PASS = st.secrets.get("ADMIN_PASS", "admin")
+ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASS = os.getenv("ADMIN_PASS", "admin")
 
 
 # inside your sidebar (or wherever you want)
