@@ -456,7 +456,6 @@ def get_fps_list(dist_code):
         raise RuntimeError("playwright and/or bs4 not available in this environment")
     with sync_playwright() as p:
         browser = p.chromium.launch(
-    executable_path="/home/appuser/.cache/ms-playwright/chromium-1223/chrome-linux/chrome",
     headless=True,
     args=[
         "--no-sandbox",
