@@ -877,15 +877,15 @@ def render_epos_automation_mode():
             
             st.success("✅ Data fetch completed!")
             
-            # # Show raw response for debugging
-            # with st.expander("📋 Raw API Response (for debugging)"):
-            #     col_d1, col_d2 = st.columns(2)
-            #     with col_d1:
-            #         st.write("**Previous Month Raw Response:**")
-            #         st.json(st.session_state.get("epos_prev_raw", {})[:200] if isinstance(st.session_state.get("epos_prev_raw"), str) else st.session_state.get("epos_prev_raw", {}))
-            #     with col_d2:
-            #         st.write("**Current Month Raw Response:**")
-            #         st.json(st.session_state.get("epos_curr_raw", {})[:200] if isinstance(st.session_state.get("epos_curr_raw"), str) else st.session_state.get("epos_curr_raw", {}))
+            # Show raw response for debugging
+            with st.expander("📋 Raw API Response (for debugging)"):
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    st.write("**Previous Month Raw Response:**")
+                    st.json(st.session_state.get("epos_prev_raw", {})[:200] if isinstance(st.session_state.get("epos_prev_raw"), str) else st.session_state.get("epos_prev_raw", {}))
+                with col_d2:
+                    st.write("**Current Month Raw Response:**")
+                    st.json(st.session_state.get("epos_curr_raw", {})[:200] if isinstance(st.session_state.get("epos_curr_raw"), str) else st.session_state.get("epos_curr_raw", {}))
             
             if not prev_data:
                 st.warning(f"⚠️ No cards found in previous month response. Raw response: {st.session_state.get('epos_prev_raw', {})}")
@@ -1516,28 +1516,27 @@ if can_run_analysis:
     missing_owner_cards = [card for card in (prev_cards | curr_cards) if card_owners.get(card) is None]
 
     if missing_owner_cards:
-        with st.expander("👤 Add Missing Card Owner Names", expanded=False):
-            missing_df = pd.DataFrame({
-                "Ration Card": missing_owner_cards,
-                "Owner Name": ["" for _ in missing_owner_cards]
-            })
-            edited_df = st.data_editor(missing_df, num_rows="dynamic", use_container_width=True, key="owner_editor")
+        st.subheader("👤 Add Missing Card Owner Names")
+        missing_df = pd.DataFrame({
+            "Ration Card": missing_owner_cards,
+            "Owner Name": ["" for _ in missing_owner_cards]
+        })
+        edited_df = st.data_editor(missing_df, num_rows="dynamic", use_container_width=True, key="owner_editor")
 
-            if st.button("✅ Save Owner Names"):
-                new_entries = 0
-                for _, row in edited_df.iterrows():
-                    card = row["Ration Card"]
-                    name = row["Owner Name"].strip()
-                    if name:
-                        with open("card_owners.txt", "a", encoding="utf-8") as f:
-                            f.write(f"{card} {name}\n")
-                        card_owners[card] = name
-                        new_entries += 1
-                if new_entries:
-                    st.success(f"✅ Saved {new_entries} new owner(s). Please refresh to update the tables.")
-                else:
-                    st.warning("⚠️ No names were entered to save.")
-
+        if st.button("✅ Save Owner Names"):
+            new_entries = 0
+            for _, row in edited_df.iterrows():
+                card = row["Ration Card"]
+                name = row["Owner Name"].strip()
+                if name:
+                    with open("card_owners.txt", "a", encoding="utf-8") as f:
+                        f.write(f"{card} {name}\n")
+                    card_owners[card] = name
+                    new_entries += 1
+            if new_entries:
+                st.success(f"✅ Saved {new_entries} new owner(s). Please refresh to update the tables.")
+            else:
+                st.warning("⚠️ No names were entered to save.")
 
     st.subheader(T["summary"])
 
