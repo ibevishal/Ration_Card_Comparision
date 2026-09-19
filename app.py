@@ -1,27 +1,18 @@
 import streamlit as st
 import pandas as pd
-import streamlit.components.v1 as components
 import io
 import csv
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import streamlit.web as st_web
 import os
 import ssl
 import requests
+from urllib.parse import quote
 
 # Disable SSL verification globally
 ssl._create_default_https_context = ssl._create_unverified_context
-
-# Patch for older TLS versions
-import certifi
-try:
-    import ssl as ssl_module
-    # Allow all TLS versions
-    ssl_module.OPENSSL_VERSION
-except:
-    pass
 
 # Disable SSL warnings
 try:
@@ -55,6 +46,21 @@ except FileNotFoundError:
 
 
 st.set_page_config(page_title="Ration Card Comparison App", layout="wide")
+st.set_option("client.toolbarMode", "minimal")
+
+
+def show_error_with_support(message):
+    st.error(message)
+    st.markdown(
+        """
+        <a href="https://instagram.com/ibe.vishal" target="_blank"
+        style="display:inline-block; padding:8px 14px; background:#E1306C; color:white;
+               border-radius:5px; text-decoration:none; font-weight:600;">
+        💬 Contact Support: @ibe.vishal
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # very simple user identification
@@ -84,7 +90,9 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = True
     st.session_state["username"] = st.session_state.get("username", "Guest")
 
-theme = st.sidebar.selectbox("🎨 Choose Theme", ["Gray", "Dark"], index=0)
+#theme = st.sidebar.selectbox("🎨 Choose Theme", ["Gray", "Dark"], index=0)
+# Theme selector disabled; Gray is the fixed application theme.
+theme = "Gray"
 if theme == "Gray":
     st.markdown(
         """
@@ -146,14 +154,19 @@ languages = {
         "print": "🖨️ प्रिंट करें"
     }
 }
-
-selected_lang = st.sidebar.selectbox("🌐 Select Language", list(languages.keys()), index=0)
+# Language selector disabled; English is the fixed application language.
+selected_lang = "English"
+# selected_lang = st.sidebar.selectbox("🌐 Select Language", list(languages.keys()), index=0)
 T = languages[selected_lang]
 font_size = st.sidebar.slider("🔠 Font Size", min_value=0, max_value=50, value=17)
 st.markdown(
     f"""
     <style>
     /* Apply chosen font size broadly so slider affects UI elements */
+    .block-container {{
+        padding-top: 1rem !important;
+        padding-bottom: 0.25rem !important;
+    }}
     html, body, .stApp, .block-container, .main, .stMarkdown, .streamlit-expanderHeader, .stText, .stButton>button, .stSelectbox, .stMultiSelect, .stTextInput, .stTextArea, .stNumberInput, .stFileUploader {{
         font-size: {font_size}px !important;
         line-height: 1.2 !important;
@@ -193,27 +206,57 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
-st.markdown("""
-<style>
-button[kind="primary"] {
-    background-color: #4CAF50 !important;
-    color: white !important;
-    font-weight: bold;
-    border-radius: 8px;
-}
-</style>
-""", unsafe_allow_html=True)
 st.markdown(
     """
-    <h1 style="
-        text-align:center;
-        font-family:sans-serif;
-        animation: bounce 2s infinite;
-    ">✨ Ration Card Comparison ✨</h1>
+    <div class="app-title-header">Ration Card Comparison</div>
     <style>
-    @keyframes bounce {
-      0%, 100% {transform: translateY(0);}
-      50% {transform: translateY(-5px);}
+    .app-title-header {
+        position: fixed;
+        top: 0;
+        left: 50%;
+        z-index: 1000000;
+        transform: translateX(-50%);
+        pointer-events: none;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 2.875rem;
+        padding: 0 1.25rem;
+        text-align: center;
+        color: #ffffff;
+        background: rgba(30, 36, 42, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-top: 0;
+        border-radius: 0 0 10px 10px;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.28);
+        font-size: 1.2rem;
+        font-weight: 700;
+        line-height: 1;
+        white-space: nowrap;
+    }
+    div:has(> .app-title-header) {
+        height: 0 !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    .app-title-header::after {
+        content: "";
+        position: absolute;
+        right: 0.2rem;
+        bottom: 0;
+        left: 0.2rem;
+        height: 3px;
+        background: #4CAF50;
+        border-radius: 3px;
+    }
+    @media (max-width: 600px) {
+        .app-title-header {
+            height: 2.875rem;
+            padding: 0 0.85rem;
+            font-size: 1rem;
+        }
     }
     </style>
     """,
@@ -684,14 +727,13 @@ def fetch_epos_report(payload: dict, retries: int = 3):
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, requests.exceptions.SSLError) as e:
             if attempt < retries - 1:
                 wait_time = 2 ** attempt  # Exponential backoff
-                st.warning(f"⏱️ Connection issue (attempt {attempt + 1}/{retries}): {type(e).__name__}. Waiting {wait_time}s before retry...")
                 import time
                 time.sleep(wait_time)
             else:
                 raise
         except Exception as e:
             if attempt < retries - 1:
-                st.warning(f"⚠️ Error on attempt {attempt + 1}/{retries}: {str(e)[:100]}. Retrying...")
+                continue
             else:
                 raise
     
@@ -770,85 +812,194 @@ def render_epos_automation_mode():
     st.subheader("Automation from Bihar ePOS")
     st.caption("Fetch and compare data for previous month vs current month from the live Bihar ePOS backend.")
     
-    st.session_state.setdefault("epos_districts", [])
-    st.session_state.setdefault("epos_afso", [])
-    st.session_state.setdefault("epos_fps", [])
-    st.session_state.setdefault("epos_prev_data", {})
-    st.session_state.setdefault("epos_curr_data", {})
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### Step 1: Select Location")
-        
-        if st.button("Load district list", key="load_districts_auto"):
-            try:
+    for state_key, default in {
+        "epos_districts": [],
+        "epos_afso": [],
+        "epos_fps": [],
+        "epos_prev_data": {},
+        "epos_curr_data": {},
+    }.items():
+        st.session_state.setdefault(state_key, default)
+
+    st.markdown("### Step 1: Select District")
+    if not st.session_state.get("epos_districts"):
+        try:
+            with st.spinner("Loading districts..."):
                 st.session_state["epos_districts"] = fetch_epos_select_options("/Epos_Spring/Common/getDistricts")
-                st.success("District list loaded.")
-            except Exception as exc:
-                st.error(f"District list could not be loaded: {exc}")
-                st.session_state["epos_districts"] = []
-        
-        district_options = st.session_state.get("epos_districts", [])
-        if district_options:
-            district_labels = [item.get("label") or item.get("value") or "Select" for item in district_options]
-            district_values = [item.get("value") for item in district_options]
-            selected_district_label = st.selectbox("District", district_labels, index=0)
-            dist_code = district_values[district_labels.index(selected_district_label)]
-        else:
-            dist_code = st.text_input("District Code", value="216")
-        
-        if st.button("Load AFSO list", key="load_afso_auto"):
-            try:
+        except Exception as exc:
+            show_error_with_support(f"District list could not be loaded: {exc}")
+            st.session_state["epos_districts"] = []
+
+    district_options = st.session_state.get("epos_districts", [])
+    if not district_options:
+        st.warning("No district list was returned. Please reload the app and try again.")
+        return
+
+    district_labels = [item.get("label") or item.get("value") or "Select" for item in district_options]
+    district_values = [item.get("value") for item in district_options]
+
+    def preferred_index(labels, preferred_text):
+        preferred_text = preferred_text.casefold()
+        for index, label in enumerate(labels):
+            if preferred_text in str(label).casefold():
+                return index
+        return 0
+
+    def selectbox_with_default(label, options, default_index, key, format_func=None):
+        selectbox_args = {
+            "label": label,
+            "options": options,
+            "key": key,
+        }
+        if format_func is not None:
+            selectbox_args["format_func"] = format_func
+        if key not in st.session_state:
+            selectbox_args["index"] = default_index
+        return st.selectbox(**selectbox_args)
+
+    selected_district_label = selectbox_with_default(
+        "District",
+        district_labels,
+        preferred_index(district_labels, "Muzaffarpur"),
+        "district_auto",
+    )
+    dist_code = district_values[district_labels.index(selected_district_label)]
+
+    if st.session_state.get("loaded_dist_code") != dist_code:
+        st.session_state.pop("afso_auto", None)
+        st.session_state.pop("fps_auto", None)
+        st.session_state["epos_afso"] = []
+        st.session_state["epos_fps"] = []
+        st.session_state["epos_prev_data"] = {}
+        st.session_state["epos_curr_data"] = {}
+        st.session_state.pop("last_auto_fetch_signature", None)
+        st.session_state["loaded_dist_code"] = dist_code
+
+    st.markdown("### Step 2: Select AFSO")
+    if not st.session_state.get("epos_afso"):
+        try:
+            with st.spinner("Loading AFSO list..."):
                 st.session_state["epos_afso"] = fetch_epos_select_options("/Epos_Spring/Common/getAfso", {"dist_code": str(dist_code)})
-                st.success("AFSO list loaded.")
-            except Exception as exc:
-                st.error(f"AFSO list could not be loaded: {exc}")
-                st.session_state["epos_afso"] = []
-        
-        afso_options = st.session_state.get("epos_afso", [])
-        if afso_options:
-            afso_labels = [item.get("label") or item.get("value") or "Select" for item in afso_options]
-            afso_values = [item.get("value") for item in afso_options]
-            selected_afso_label = st.selectbox("AFSO", afso_labels, index=0)
-            afso_code = afso_values[afso_labels.index(selected_afso_label)]
-        else:
-            afso_code = st.text_input("AFSO Code", value="01205")
-        
-        if st.button("Load FPS list", key="load_fps_auto"):
-            try:
+        except Exception as exc:
+            show_error_with_support(f"AFSO list could not be loaded: {exc}")
+            st.session_state["epos_afso"] = []
+
+    afso_options = st.session_state.get("epos_afso", [])
+    if not afso_options:
+        st.warning("No AFSO list was returned for this district.")
+        return
+
+    afso_labels = [item.get("label") or item.get("value") or "Select" for item in afso_options]
+    afso_values = [item.get("value") for item in afso_options]
+    selected_afso_label = selectbox_with_default(
+        "AFSO",
+        afso_labels,
+        preferred_index(afso_labels, "Minapur"),
+        "afso_auto",
+    )
+    afso_code = afso_values[afso_labels.index(selected_afso_label)]
+
+    if st.session_state.get("loaded_afso_code") != afso_code:
+        st.session_state.pop("fps_auto", None)
+        st.session_state["epos_fps"] = []
+        st.session_state["epos_prev_data"] = {}
+        st.session_state["epos_curr_data"] = {}
+        st.session_state.pop("last_auto_fetch_signature", None)
+        st.session_state["loaded_afso_code"] = afso_code
+
+    st.markdown("### Step 3: Select FPS")
+    if not st.session_state.get("epos_fps"):
+        try:
+            with st.spinner("Loading FPS list..."):
                 st.session_state["epos_fps"] = fetch_epos_select_options("/Epos_Spring/Common/getFPSs", {"dist_code": str(dist_code), "afso_code": str(afso_code)})
-                st.success("FPS list loaded.")
-            except Exception as exc:
-                st.error(f"FPS list could not be loaded: {exc}")
-                st.session_state["epos_fps"] = []
-        
-        fps_options = st.session_state.get("epos_fps", [])
-        if fps_options:
-            fps_labels = [item.get("label") or item.get("value") or "Select" for item in fps_options]
-            fps_values = [item.get("value") for item in fps_options]
-            selected_fps_label = st.selectbox("FPS", fps_labels, index=0)
-            fps_id = fps_values[fps_labels.index(selected_fps_label)]
-        else:
-            fps_id = st.text_input("FPS ID", value="")
-    
-    with col2:
-        st.markdown("### Step 2: Select Date Range")
-        
+        except Exception as exc:
+            show_error_with_support(f"FPS list could not be loaded: {exc}")
+            st.session_state["epos_fps"] = []
+
+    fps_options = st.session_state.get("epos_fps", [])
+    if not fps_options:
+        st.warning("No FPS list was returned for this AFSO.")
+        return
+
+    fps_labels = [item.get("label") or item.get("value") or "Select" for item in fps_options]
+    fps_values = [item.get("value") for item in fps_options]
+    selected_fps_label = selectbox_with_default(
+        "FPS",
+        fps_labels,
+        preferred_index(fps_labels, "121600101779"),
+        "fps_auto",
+    )
+    fps_id = fps_values[fps_labels.index(selected_fps_label)]
+
+    st.markdown("### Step 4: Select Date Range")
+
+    with st.container():
+        today = datetime.now(ZoneInfo("Asia/Kolkata"))
+        current_month = today.month
+        current_year = today.year
+        previous_date = today.replace(day=1) - timedelta(days=1)
+        date_defaults_key = f"{current_year}-{current_month}"
+        if st.session_state.get("auto_date_defaults_key") != date_defaults_key:
+            for date_key in ("prev_period_auto", "curr_period_auto"):
+                st.session_state.pop(date_key, None)
+            st.session_state["auto_date_defaults_key"] = date_defaults_key
+
+        def periods_until(end_year, end_month, start_year=2024):
+            return [
+                (year, month)
+                for year in range(start_year, end_year + 1)
+                for month in range(1, 13)
+                if year < end_year or month <= end_month
+            ]
+
+        current_period_options = periods_until(current_year, current_month)
+
+        def period_label(period):
+            return datetime(period[0], period[1], 1).strftime("%B %Y")
+
         col2a, col2b = st.columns(2)
         with col2a:
-            prev_month = st.selectbox("Previous Month", list(range(1, 13)), index=6, key="prev_month_auto")
-            prev_year = st.number_input("Previous Year", min_value=2024, max_value=2035, value=2026, step=1, key="prev_year_auto")
-        
+            curr_period = selectbox_with_default(
+                "Current Month",
+                current_period_options,
+                len(current_period_options) - 1,
+                "curr_period_auto",
+                period_label,
+            )
+
+            previous_period_end = datetime(curr_period[0], curr_period[1], 1) - timedelta(days=1)
+            previous_period_options = periods_until(
+                previous_period_end.year,
+                previous_period_end.month,
+                start_year=2023,
+            )
+            if st.session_state.get("previous_period_limit") != curr_period:
+                st.session_state.pop("prev_period_auto", None)
+                st.session_state["previous_period_limit"] = curr_period
+
         with col2b:
-            curr_month = st.selectbox("Current Month", list(range(1, 13)), index=7, key="curr_month_auto")
-            curr_year = st.number_input("Current Year", min_value=2024, max_value=2035, value=2026, step=1, key="curr_year_auto")
+            prev_period = selectbox_with_default(
+                "Previous Month",
+                previous_period_options,
+                len(previous_period_options) - 1,
+                "prev_period_auto",
+                period_label,
+            )
+
+        prev_year, prev_month = prev_period
+        curr_year, curr_month = curr_period
     
-    st.markdown("### Step 3: Fetch & Compare")
-    
-    if st.button("Fetch both months and compare", key="fetch_and_compare"):
-        st.info("⏳ Fetching data for both months... this may take 2-3 minutes.")
-        
+    fetch_signature = (
+        str(dist_code),
+        str(afso_code),
+        str(fps_id),
+        prev_month,
+        prev_year,
+        curr_month,
+        curr_year,
+    )
+
+    if st.session_state.get("last_auto_fetch_signature") != fetch_signature:
         prev_payload = {
             "month": prev_month,
             "year": prev_year,
@@ -885,8 +1036,6 @@ def render_epos_automation_mode():
             prev_data = st.session_state["epos_prev_data"]
             curr_data = st.session_state["epos_curr_data"]
             
-            st.success("✅ Data fetch completed!")
-            
             # # Show raw response for debugging
             # with st.expander("📋 Raw API Response (for debugging)"):
             #     col_d1, col_d2 = st.columns(2)
@@ -907,12 +1056,11 @@ def render_epos_automation_mode():
                 st.info("The API may have returned data in a different format than expected. Check the raw response above.")
                 return
             
-            st.success(f"✅ Data fetched successfully!")
+            st.session_state["last_auto_fetch_signature"] = fetch_signature
             st.session_state["trigger_analysis"] = True
             
         except Exception as exc:
-            st.error(f"❌ Failed to fetch data: {exc}")
-            st.warning("💡 The Bihar ePOS server may be slow or unreachable. Try again or use the Upload mode.")
+            show_error_with_support(f"❌ Failed to fetch data: {exc}")
 
 
 
@@ -969,7 +1117,7 @@ data_mode = st.radio(
         "Upload Excel Files (Monthly export)",
         "Automation from Bihar ePOS (WIP)"
     ],
-    index=0,
+    index=1,
 )
 
 
@@ -1020,7 +1168,7 @@ with st.sidebar.expander("🔒 Admin Login"):
             st.session_state["is_admin"] = True
             st.success("✅ Admin logged in successfully")
         else:
-            st.error("❌ Wrong admin credentials")
+            show_error_with_support("❌ Wrong admin credentials")
 
 if st.session_state.get("is_admin"):
     st.sidebar.success("🛠️ You are in Admin Mode")
@@ -1070,7 +1218,7 @@ if st.session_state.get("is_admin"):
     if os.path.exists("activity_log.csv"):
         st.subheader("📄 User Activity Log")
         log_df = pd.read_csv("activity_log.csv", names=["Username", "Timestamp", "UserAgent", "IP"])
-        st.dataframe(log_df, use_container_width=True)
+        st.dataframe(log_df, width="stretch")
  
 #admin part end
 
@@ -1429,13 +1577,6 @@ if can_run_analysis:
             #     st.write("Parsed curr_data sample:", list(curr_data.items())[:5])
             # except Exception:
             #     pass
-        elif data_mode == "Automation from Bihar ePOS (WIP)":
-            # Automation mode: use fetched data directly
-            st.success("✅ Data fetched from Bihar ePOS successfully!")
-            st.session_state["prev_data"] = prev_data
-            st.session_state["curr_data"] = curr_data
-            st.session_state["prev_cards"] = set(prev_data.keys())
-            st.session_state["curr_cards"] = set(curr_data.keys())
         else:
             uploaded_pair = {
                 "prev_name": file1.name,
@@ -1466,6 +1607,9 @@ if can_run_analysis:
         prev_cards = st.session_state.get("prev_cards", set(prev_data.keys()))
         curr_cards = st.session_state.get("curr_cards", set(curr_data.keys()))
 
+    def set_search_query(card_number):
+        st.session_state["search_input"] = card_number
+
     search_query = st.text_input(f"🔍 {T['search_placeholder']}", key="search_input")
 
     if search_query:
@@ -1482,9 +1626,12 @@ if can_run_analysis:
             for idx, (card, owner) in enumerate(suggestion_cards[:suggestion_limit]):
                 label = f"{card} ({owner})" if owner else card
                 with suggestion_cols[idx % len(suggestion_cols)]:
-                    if st.button(label, key=f"suggest_{card}_{idx}"):
-                        st.session_state["search_input"] = card
-                        search_query = card
+                    st.button(
+                        label,
+                        key=f"suggest_{card}_{idx}",
+                        on_click=set_search_query,
+                        args=(card,)
+                    )
 
         st.subheader("🔎 Search Results")
         matching_cards = [
@@ -1519,9 +1666,20 @@ if can_run_analysis:
                 })
 
             results_df = pd.DataFrame(search_rows)
-            st.dataframe(results_df, use_container_width=True)
+            st.dataframe(results_df, width="stretch")
         else:
             st.warning("No match found.")
+
+    st.subheader(T["summary"])
+
+    prev_total = len(prev_cards) if prev_cards is not None else 0
+    curr_total = len(curr_cards) if curr_cards is not None else 0
+
+    st.success(f"✅ Total Ration Cards (Previous Month): **{prev_total}**")
+    st.success(f"✅ Total Ration Cards (Current Month): **{curr_total}**")
+
+    left_cards = sorted(prev_cards - curr_cards)
+    new_cards = sorted(curr_cards - prev_cards)
 
     missing_owner_cards = [card for card in (prev_cards | curr_cards) if card_owners.get(card) is None]
 
@@ -1531,7 +1689,7 @@ if can_run_analysis:
                 "Ration Card": missing_owner_cards,
                 "Owner Name": ["" for _ in missing_owner_cards]
             })
-            edited_df = st.data_editor(missing_df, num_rows="dynamic", use_container_width=True, key="owner_editor")
+            edited_df = st.data_editor(missing_df, num_rows="dynamic", width="stretch", key="owner_editor")
 
             if st.button("✅ Save Owner Names"):
                 new_entries = 0
@@ -1548,42 +1706,30 @@ if can_run_analysis:
                 else:
                     st.warning("⚠️ No names were entered to save.")
 
-
-    st.subheader(T["summary"])
-
-    prev_total = len(prev_cards) if prev_cards is not None else 0
-    curr_total = len(curr_cards) if curr_cards is not None else 0
-
-    st.success(f"✅ Total Ration Cards (Previous Month): **{prev_total}**")
-    st.success(f"✅ Total Ration Cards (Current Month): **{curr_total}**")
-
-    left_cards = sorted(prev_cards - curr_cards)
-    new_cards = sorted(curr_cards - prev_cards)
-
-    st.subheader(T["missing"])
-    st.info(f"🧮 Total Missing: **{len(left_cards)}**")
-    if left_cards:
-        left_df = pd.DataFrame([{
-            "Ration Card": card,
-            "Card Type": prev_data[card][0],
-            "Card Holder": get_owner(card),
-            "Wheat (kg)": prev_data[card][1],
-            "Rice (kg)": prev_data[card][2]
-        } for card in left_cards])
-        st.dataframe(style_dataframe(left_df), use_container_width=True)
+    with st.expander(T["missing"], expanded=False):
+        st.info(f"🧮 Total Missing: **{len(left_cards)}**")
+        if left_cards:
+            left_df = pd.DataFrame([{
+                "Ration Card": card,
+                "Card Type": prev_data[card][0],
+                "Card Holder": get_owner(card),
+                "Wheat (kg)": prev_data[card][1],
+                "Rice (kg)": prev_data[card][2]
+            } for card in left_cards])
+            st.dataframe(style_dataframe(left_df), width="stretch")
 
 
-    st.subheader(T["new"])
-    st.info(f"🧮 Total New: **{len(new_cards)}**")
-    if new_cards:
-        new_df = pd.DataFrame([{
-            "Ration Card": card,
-            "Card Type": curr_data[card][0],
-            "Card Holder": get_owner(card),
-            "Wheat (kg)": curr_data[card][1],
-            "Rice (kg)": curr_data[card][2]
-        } for card in new_cards])
-        st.dataframe(style_dataframe(new_df), use_container_width=True)
+    with st.expander(T["new"], expanded=False):
+        st.info(f"🧮 Total New: **{len(new_cards)}**")
+        if new_cards:
+            new_df = pd.DataFrame([{
+                "Ration Card": card,
+                "Card Type": curr_data[card][0],
+                "Card Holder": get_owner(card),
+                "Wheat (kg)": curr_data[card][1],
+                "Rice (kg)": curr_data[card][2]
+            } for card in new_cards])
+            st.dataframe(style_dataframe(new_df), width="stretch")
 
 
     changed_cards = sorted([
@@ -1591,30 +1737,40 @@ if can_run_analysis:
         if prev_data[card][1:] != curr_data[card][1:]
     ])
     if changed_cards:
-        st.subheader(T["changed"])
-        st.info(f"🧮 Total Changed: **{len(changed_cards)}**")
-        changed_df = pd.DataFrame([{
-            "Ration Card": card,
-            "Card Type": curr_data[card][0],
-            "Card Holder": get_owner(card),
-            "Wheat (Previous)": prev_data[card][1],
-            "Wheat (Current)": curr_data[card][1],
-            "Rice (Previous)": prev_data[card][2],
-            "Rice (Current)": curr_data[card][2]
-        } for card in changed_cards])
-        st.dataframe(style_dataframe(changed_df), use_container_width=True)
+        with st.expander(T["changed"], expanded=False):
+            st.info(f"🧮 Total Changed: **{len(changed_cards)}**")
+            changed_df = pd.DataFrame([{
+                "Ration Card": card,
+                "Card Type": curr_data[card][0],
+                "Card Holder": get_owner(card),
+                "Wheat (Previous)": prev_data[card][1],
+                "Wheat (Current)": curr_data[card][1],
+                "Rice (Previous)": prev_data[card][2],
+                "Rice (Current)": curr_data[card][2]
+            } for card in changed_cards])
+            st.dataframe(style_dataframe(changed_df), width="stretch")
 
 
 if "left_cards" in locals() and "new_cards" in locals() and "changed_cards" in locals():
     st.subheader("🖨️ Print / Save as PDF")
     st.caption("Choose the sections, then use your device print dialog to print or save the report as a PDF.")
 
-    print_choices = st.multiselect(
-        "✅ Sections to include",
-        options=["Missing Ration Cards", "New Ration Cards", "Changed Ration Allotments"],
-        default=["Missing Ration Cards", "New Ration Cards", "Changed Ration Allotments"],
-        key="print_choices"
-    )
+    st.markdown("**✅ Select sections to include**")
+    print_col1, print_col2, print_col3 = st.columns(3)
+    with print_col1:
+        print_missing = st.checkbox("Missing Ration Cards", value=True, key="print_missing")
+    with print_col2:
+        print_new = st.checkbox("New Ration Cards", value=True, key="print_new")
+    with print_col3:
+        print_changed = st.checkbox("Changed Allotments", value=True, key="print_changed")
+
+    print_choices = []
+    if print_missing:
+        print_choices.append("Missing Ration Cards")
+    if print_new:
+        print_choices.append("New Ration Cards")
+    if print_changed:
+        print_choices.append("Changed Ration Allotments")
 
     printable_html = """
     <style>
@@ -1667,7 +1823,7 @@ if "left_cards" in locals() and "new_cards" in locals() and "changed_cards" in l
         printable_html += add_print_table("Changed Ration Allotments", changed_df if changed_cards else pd.DataFrame(), len(changed_cards))
 
     printable_html = printable_html.replace("`", "\\`").replace("${", "\\${")
-    components.html(f"""
+    print_frame_html = f"""
         <div style="padding: 4px 0; color: #555;">Preview is formatted for phone and laptop printing.</div>
         <button onclick="printReport()" style="width: 100%; max-width: 320px; padding: 13px 18px; font-size: 16px;
                 background-color: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer;">
@@ -1690,23 +1846,28 @@ if "left_cards" in locals() and "new_cards" in locals() and "changed_cards" in l
                 }};
             }}
         </script>
-    """, height=110, scrolling=False)
+    """
+    st.iframe(f"data:text/html;charset=utf-8,{quote(print_frame_html)}", height=110)
 
 
 # Footer instructions
 st.markdown("---")
 st.subheader("✈️INSTRUCTION🙌")
-st.caption("💡 Select the district code { check from AEPDS BIHAR}, choose the months, pick the FPS, then click Fetch.")
-st.subheader("FOR DATA VERIFICATION")
-st.caption("💡If total of Wheat Sold in Ration Card list :: All Good ignore that Value")
-st.caption("💡If total of Wheat Sold not in Ration Card list :: Fetch Data Again something is wrong")
+if data_mode == "Automation from Bihar ePOS (WIP)":
+    st.caption("💡 Select a district. The AFSO and FPS lists load automatically after each selection.")
+    st.caption("💡 Choose the Current Month first, then the Previous Month. Data loads automatically after the selections.")
+else:
+    st.caption("💡 Upload the Previous Month and Current Month files in Excel, CSV, or TXT format.")
+    st.caption("💡 After both files are uploaded, the comparison results appear automatically below.")
 
 st.markdown(
     """
-    <hr>
-    <p style="text-align:center;font-size:12px;color:gray;">
-    ❤️ Built by Vishal Kumar | <a href="https://instagram.com/ibe.vishal" target="_blank">Instagram</a>
+    <div style="margin-top:12px;padding-bottom:8px;">
+    <hr style="margin:0 0 6px;">
+    <p style="text-align:center;font-size:12px;color:gray;margin:0;padding:0;">
+    © All rights reserved
     </p>
+    </div>
     """,
     unsafe_allow_html=True
 )

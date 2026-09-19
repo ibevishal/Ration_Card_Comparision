@@ -1,1 +1,1 @@
-Automation completed Enjoy
+Bihar Epos only support data fetch for previous/current month so for other use excel/csv/txt file
