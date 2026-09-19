@@ -699,7 +699,7 @@ def fetch_epos_select_options(endpoint: str, params: dict | None = None):
     url = f"{EPOS_BASE_URL}{endpoint}"
     last_error = None
     response = None
-    for attempt in range(5):
+    for attempt in range(3):
         try:
             response = requests.get(
                 url,
@@ -712,9 +712,9 @@ def fetch_epos_select_options(endpoint: str, params: dict | None = None):
             break
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as exc:
             last_error = exc
-            if attempt < 4:
+            if attempt < 2:
                 import time
-                time.sleep(min(2 ** attempt, 8))
+                time.sleep(min(2 ** attempt, 4))
 
     if response is None:
         fallback_headers = {**EPOS_HEADERS, "Host": "epos.bihar.gov.in"}
