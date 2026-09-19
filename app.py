@@ -675,8 +675,28 @@ def parse_html_options(html: str):
 def fetch_epos_select_options(endpoint: str, params: dict | None = None):
     """Fetch an ePOS dropdown list using the current backend route pattern."""
     url = f"{EPOS_BASE_URL}{endpoint}"
-    response = requests.get(url, params=params or {}, timeout=30, verify=False, headers=EPOS_HEADERS)
-    response.raise_for_status()
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                url,
+                params=params or {},
+                timeout=30,
+                verify=False,
+                headers=EPOS_HEADERS,
+            )
+            response.raise_for_status()
+            break
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as exc:
+            last_error = exc
+            if attempt < 2:
+                import time
+                time.sleep(2 ** attempt)
+            else:
+                raise
+    else:
+        raise last_error or RuntimeError(f"Could not reach {url}")
+
     html = response.text
 
     items = parse_html_options(html)
