@@ -9,7 +9,6 @@ import streamlit.web as st_web
 import os
 import ssl
 import requests
-import requests
 
 # Disable SSL verification globally
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -597,13 +596,23 @@ def parse_html_options(html: str):
     if not html:
         return []
 
+    def is_placeholder(value, label):
+        normalized_label = re.sub(r"[^a-z0-9]+", "", label.lower())
+        return value in {"", "0"} and normalized_label in {
+            "select",
+            "selection",
+            "chooseselect",
+            "pleaseselect",
+            "pleasechoose",
+        }
+
     if BS4_AVAILABLE:
         soup = BeautifulSoup(html, "html.parser")
         options = []
         for option in soup.find_all("option"):
             value = (option.get("value") or "").strip()
             label = option.get_text(" ", strip=True)
-            if value or label:
+            if (value or label) and not is_placeholder(value, label):
                 options.append({"value": value, "label": label})
         if options:
             return options
@@ -614,7 +623,7 @@ def parse_html_options(html: str):
     for value, label_html in matches:
         label = re.sub(r"<.*?>", " ", label_html)
         label = re.sub(r"\s+", " ", label).strip()
-        if value or label:
+        if (value or label) and not is_placeholder(value.strip(), label):
             items.append({"value": value.strip(), "label": label})
     return items
 
@@ -1595,56 +1604,92 @@ if can_run_analysis:
         st.dataframe(style_dataframe(changed_df), use_container_width=True)
 
 
-if (file1 and file2) or (html_mode and st.session_state.get("prev_data") and st.session_state.get("curr_data")):
-    st.subheader("🖨️ Print Options")
+if "left_cards" in locals() and "new_cards" in locals() and "changed_cards" in locals():
+    st.subheader("🖨️ Print / Save as PDF")
+    st.caption("Choose the sections, then use your device print dialog to print or save the report as a PDF.")
+
     print_choices = st.multiselect(
-        "✅ Select which sections to include in the print report",
+        "✅ Sections to include",
         options=["Missing Ration Cards", "New Ration Cards", "Changed Ration Allotments"],
-        default=["Missing Ration Cards", "New Ration Cards", "Changed Ration Allotments"]
+        default=["Missing Ration Cards", "New Ration Cards", "Changed Ration Allotments"],
+        key="print_choices"
     )
 
     printable_html = """
     <style>
-        h3 { font-family: Arial; margin-top: 30px; }
-        .missing { color: red; }
-        .new { color: green; }
-        .changed { color: orange; }
-        table, th, td { border: 1px solid #aaa; border-collapse: collapse; }
-        th, td { padding: 8px; font-size: 14px; }
-        table { width: 100%; margin-bottom: 30px; background-color: #f9f9f9; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 16px; color: #202124; font-family: Arial, sans-serif; }
+        h1 { margin: 0 0 6px; font-size: 24px; }
+        h2 { margin: 22px 0 8px; padding-bottom: 5px; border-bottom: 2px solid #4CAF50; font-size: 18px; }
+        p { margin: 4px 0 14px; }
+        .summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 14px 0 20px; }
+        .summary div { padding: 9px; background: #eef6ef; border: 1px solid #c8dfca; }
+        .table-wrap { width: 100%%; overflow-x: auto; margin-bottom: 18px; }
+        table { width: 100%%; min-width: 560px; border-collapse: collapse; background: #fff; }
+        th, td { padding: 7px; border: 1px solid #aaa; text-align: left; font-size: 12px; overflow-wrap: anywhere; }
+        th { background: #4CAF50; color: white; }
+        .empty { padding: 10px; border: 1px solid #ddd; color: #666; }
+        @media (max-width: 600px) {
+            body { padding: 10px; }
+            h1 { font-size: 20px; }
+            th, td { padding: 5px; font-size: 10px; }
+        }
         @media print {
-            button { display: none; }
-            body { background: white; }
+            body { padding: 0; }
+            .table-wrap { overflow: visible; }
+            table { min-width: 0; }
+            h2 { break-after: avoid; }
+            tr { break-inside: avoid; }
         }
     </style>
-    """
+    <h1>Ration Card Comparison Report</h1>
+    <p>Generated on: %s</p>
+    <div class="summary">
+        <div><strong>Previous Month:</strong> %s cards</div>
+        <div><strong>Current Month:</strong> %s cards</div>
+        <div><strong>Missing:</strong> %s cards</div>
+        <div><strong>New:</strong> %s cards</div>
+        <div><strong>Changed:</strong> %s cards</div>
+    </div>
+    """ % (datetime.now().strftime("%d %b %Y, %I:%M %p"), len(prev_cards), len(curr_cards), len(left_cards), len(new_cards), len(changed_cards))
 
-    if "Missing Ration Cards" in print_choices and left_cards:
-        printable_html += "<h3 class='missing'>❌ Missing Ration Cards</h3>" + left_df.to_html(index=True, escape=False)
+    def add_print_table(title, dataframe, card_count):
+        if card_count:
+            return f"<h2>{title}</h2><div class='table-wrap'>{dataframe.to_html(index=False, escape=True)}</div>"
+        return f"<h2>{title}</h2><div class='empty'>No records in this section.</div>"
 
-    if "New Ration Cards" in print_choices and new_cards:
-        printable_html += "<h3 class='new'>🆕 New Ration Cards</h3>" + new_df.to_html(index=True, escape=False)
+    if "Missing Ration Cards" in print_choices:
+        printable_html += add_print_table("Missing Ration Cards", left_df if left_cards else pd.DataFrame(), len(left_cards))
+    if "New Ration Cards" in print_choices:
+        printable_html += add_print_table("New Ration Cards", new_df if new_cards else pd.DataFrame(), len(new_cards))
+    if "Changed Ration Allotments" in print_choices:
+        printable_html += add_print_table("Changed Ration Allotments", changed_df if changed_cards else pd.DataFrame(), len(changed_cards))
 
-    if "Changed Ration Allotments" in print_choices and changed_cards:
-        printable_html += "<h3 class='changed'>🔄 Changed Ration Allotments</h3>" + changed_df.to_html(index=True, escape=False)
-
+    printable_html = printable_html.replace("`", "\\`").replace("${", "\\${")
     components.html(f"""
-        <div id="print-section">{printable_html}</div>
-        <button onclick="printReport()" style="margin-top: 20px; padding: 15px 30px; font-size: 16px;
+        <div style="padding: 4px 0; color: #555;">Preview is formatted for phone and laptop printing.</div>
+        <button onclick="printReport()" style="width: 100%; max-width: 320px; padding: 13px 18px; font-size: 16px;
                 background-color: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer;">
-            🖨️ Print Report
+            🖨️ Print / Save PDF
         </button>
         <script>
+            const reportHtml = `{printable_html}`;
             function printReport() {{
-                var printContents = document.getElementById('print-section').innerHTML;
-                var originalContents = document.body.innerHTML;
-                document.body.innerHTML = printContents;
-                 window.print();
-                document.body.innerHTML = originalContents;
-                window.location.reload();
+                const printWindow = window.open('', '_blank');
+                if (!printWindow) {{
+                    alert('Please allow pop-ups for this app, then try again.');
+                    return;
+                }}
+                printWindow.document.open();
+                printWindow.document.write('<!doctype html><html><head><title>Ration Card Comparison Report</title></head><body>' + reportHtml + '</body></html>');
+                printWindow.document.close();
+                printWindow.onload = function() {{
+                    printWindow.focus();
+                    printWindow.print();
+                }};
             }}
         </script>
-    """, height=800, scrolling=True)
+    """, height=110, scrolling=False)
 
 
 # Footer instructions
