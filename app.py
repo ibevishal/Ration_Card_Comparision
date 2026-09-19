@@ -1,14 +1,13 @@
 import streamlit as st
 import pandas as pd
 import io
-import csv
 import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-import streamlit.web as st_web
 import os
 import ssl
 import requests
+import time
 from urllib.parse import quote
 
 # Disable SSL verification globally
@@ -20,13 +19,6 @@ try:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 except Exception:
     pass
-
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except Exception:
-    sync_playwright = None
-    PLAYWRIGHT_AVAILABLE = False
 
 try:
     from bs4 import BeautifulSoup
@@ -110,16 +102,17 @@ if theme == "Gray":
         }
         </style>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
+
 
 def style_dataframe(df):
     return df.style.set_properties(**{
-        'background-color': "#89A8B7",
-        'color': "#000000",
-        'border-color': "#8B4E92"
+        "background-color": "#89A8B7",
+        "color": "#000000",
+        "border-color": "#8B4E92",
     }).set_table_styles([
-        {'selector': 'thead', 'props': [('background-color', '#4CAF50'), ('color', 'white')]}
+        {"selector": "thead", "props": [("background-color", "#4CAF50"), ("color", "white")]}
     ])
 
 if "trigger_analysis" not in st.session_state:
@@ -489,143 +482,6 @@ def extract_ration_data_from_html(html):
     return data
 
 
-def extract_ration_numbers_from_html(html):
-    return list(extract_ration_data_from_html(html).keys())
-
-
-def _epos_candidate_urls(base_path):
-    """Support both legacy .jsp pages and the newer extensionless endpoint names."""
-    return [
-        f"https://epos.bihar.gov.in/{base_path}",
-        f"https://epos.bihar.gov.in/{base_path}.jsp",
-    ]
-
-
-@st.cache_data(ttl=300)
-def get_fps_list(dist_code):
-    if not PLAYWRIGHT_AVAILABLE or not BS4_AVAILABLE:
-        raise RuntimeError("playwright and/or bs4 not available in this environment")
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-    headless=True,
-    args=[
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-    ],
-)
-
-        page = browser.new_page(ignore_https_errors=True)
-
-        abstract_url = None
-        for candidate in _epos_candidate_urls("FPS_Trans_Abstract"):
-            try:
-                page.goto(candidate, wait_until="domcontentloaded", timeout=60000)
-                abstract_url = candidate
-                break
-            except Exception:
-                continue
-        if abstract_url is None:
-            raise RuntimeError("Could not reach the Bihar ePOS abstract page.")
-
-        response = page.request.post(
-            "https://epos.bihar.gov.in/AjaxExecution.jsp",
-            form={
-                "select": "true",
-                "type": "fps",
-                "param": str(dist_code),
-            },
-        )
-
-        html = response.text()
-        browser.close()
-
-    soup = BeautifulSoup(html, "html.parser")
-
-    fps_data = {}
-    for option in soup.find_all("option"):
-        value = option.get("value")
-        text = option.text.strip()
-        if value and value != "0":
-            fps_data[text] = value
-    return fps_data
-
-
-@st.cache_data(ttl=300)
-def fetch_epos_html(dist_code, fps_id, month, year):
-    import requests
-    from requests.adapters import HTTPAdapter
-    import urllib3
-    import subprocess
-
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    detail_urls = [
-        "https://epos.bihar.gov.in/FPS_Trans_Details",
-        "https://epos.bihar.gov.in/FPS_Trans_Details.jsp",
-        "http://epos.bihar.gov.in/FPS_Trans_Details",
-        "http://epos.bihar.gov.in/FPS_Trans_Details.jsp",
-    ]
-
-    # Try using curl first (more lenient with SSL issues)
-    for url in detail_urls:
-        try:
-            cmd = [
-                'curl',
-                '-k',
-                '-s',
-                '-X', 'POST',
-                url,
-                '-d', f'dist_code={dist_code}&fps_id={fps_id}&month={month}&year={year}',
-                '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                '--connect-timeout', '30',
-                '--max-time', '60'
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=70)
-            if result.returncode == 0 and result.stdout:
-                return result.stdout
-        except Exception:
-            continue
-
-    class UnverifiedAdapter(HTTPAdapter):
-        def init_poolmanager(self, *args, **kwargs):
-            kwargs['ssl_context'] = None
-            return super().init_poolmanager(*args, **kwargs)
-
-    session = requests.Session()
-    session.mount('https://', UnverifiedAdapter())
-    session.mount('http://', UnverifiedAdapter())
-
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    })
-
-    last_error = None
-    for url in detail_urls:
-        try:
-            response = session.post(
-                url,
-                data={
-                    "dist_code": str(dist_code),
-                    "fps_id": str(fps_id),
-                    "month": str(month),
-                    "year": str(year),
-                },
-                timeout=30,
-                verify=False,
-                allow_redirects=True,
-            )
-            if response.status_code == 200 and response.text:
-                return response.text
-            last_error = Exception(f"HTTP {response.status_code}")
-        except Exception as exc:
-            last_error = exc
-    if last_error is not None:
-        raise Exception(f"Failed to fetch Bihar ePOS data: {last_error}")
-    raise Exception("Failed to fetch Bihar ePOS data: unknown error")
-
-
 EPOS_BASE_URL = "https://epos.bihar.gov.in"
 EPOS_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36",
@@ -769,6 +625,7 @@ def fetch_epos_select_options(endpoint: str, params: dict | None = None):
     raise RuntimeError(f"No option data was returned for {endpoint}")
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_epos_report(payload: dict, retries: int = 3):
     """POST JSON payload to the correct Bihar ePOS report endpoint with retry logic and SSL error handling."""
     # The actual live endpoint discovered from browser network inspection
@@ -1140,6 +997,13 @@ def render_epos_automation_mode():
         curr_year,
     )
 
+    blocked_signature = st.session_state.get("auto_fetch_blocked_signature")
+    blocked_until = st.session_state.get("auto_fetch_blocked_until", 0)
+    if blocked_signature == fetch_signature and time.monotonic() < blocked_until:
+        show_error_with_support("Something went wrong. Please contact support.")
+        render_scroll_script()
+        return
+
     if st.session_state.get("last_auto_fetch_signature") != fetch_signature:
         prev_payload = {
             "month": prev_month,
@@ -1188,17 +1052,25 @@ def render_epos_automation_mode():
             #         st.json(st.session_state.get("epos_curr_raw", {})[:200] if isinstance(st.session_state.get("epos_curr_raw"), str) else st.session_state.get("epos_curr_raw", {}))
             
             if not prev_data:
+                st.session_state["auto_fetch_blocked_signature"] = fetch_signature
+                st.session_state["auto_fetch_blocked_until"] = time.monotonic() + 10
                 show_error_with_support("Selected date range is not supported. Please contact support.")
                 return
             
             if not curr_data:
+                st.session_state["auto_fetch_blocked_signature"] = fetch_signature
+                st.session_state["auto_fetch_blocked_until"] = time.monotonic() + 10
                 show_error_with_support("Selected date range is not supported. Please contact support.")
                 return
             
             st.session_state["last_auto_fetch_signature"] = fetch_signature
+            st.session_state.pop("auto_fetch_blocked_signature", None)
+            st.session_state.pop("auto_fetch_blocked_until", None)
             st.session_state["trigger_analysis"] = True
             
         except Exception as exc:
+            st.session_state["auto_fetch_blocked_signature"] = fetch_signature
+            st.session_state["auto_fetch_blocked_until"] = time.monotonic() + 10
             show_error_with_support("Selected date range is not supported. Please contact support.")
 
     render_scroll_script()
@@ -1273,23 +1145,7 @@ else:
         st.warning("⚠️ Please upload both Excel files to proceed.")
 
 
-#admin part start
-# # check if .env exists
-# if os.path.exists(".env"):
-#     try:
-#         from dotenv import load_dotenv
-#         load_dotenv()
-#         ADMIN_USER = os.getenv("ADMIN_USER", "admin")
-#         ADMIN_PASS = os.getenv("ADMIN_PASS", "admin")
-#     except Exception:
-#         ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
-#         ADMIN_PASS = os.environ.get("ADMIN_PASS", "admin")
-# else:
-#     # Use safe defaults if secrets are not configured
-#     ADMIN_USER = st.secrets.get("ADMIN_USER", "admin")
-#     ADMIN_PASS = st.secrets.get("ADMIN_PASS", "admin")
-
-#below is for render 
+# Admin credentials load from .env locally or environment variables on Render.
 from dotenv import load_dotenv
 
 # Loads .env locally if it exists.
