@@ -673,24 +673,56 @@ def parse_html_options(html: str):
 
 
 def resolve_epos_ips():
-    """Resolve the ePOS host through public DNS-over-HTTPS as a network fallback."""
+    """Resolve the ePOS host through DNS-over-HTTPS for the hosted fallback."""
     for resolver in ("https://1.1.1.1/dns-query", "https://8.8.8.8/resolve"):
         try:
             response = requests.get(
                 resolver,
                 params={"name": "epos.bihar.gov.in", "type": "A"},
                 headers={"Accept": "application/dns-json"},
-                timeout=10,
+                timeout=5,
                 verify=False,
             )
             response.raise_for_status()
             answers = response.json().get("Answer", [])
-            ips = [answer["data"] for answer in answers if answer.get("type") == 1]
-            if ips:
-                return ips
+            addresses = [item["data"] for item in answers if item.get("type") == 1]
+            if addresses:
+                return addresses
         except Exception:
             continue
     return []
+
+
+def fetch_epos_by_ip(endpoint: str, params: dict | None = None):
+    """Request ePOS by IP while preserving the hostname for TLS/SNI and routing."""
+    if "urllib3" not in globals():
+        return None
+
+    headers = {**EPOS_HEADERS, "Host": "epos.bihar.gov.in"}
+    for address in resolve_epos_ips():
+        pool = urllib3.HTTPSConnectionPool(
+            address,
+            port=443,
+            server_hostname="epos.bihar.gov.in",
+            assert_hostname=False,
+            cert_reqs="CERT_NONE",
+        )
+        try:
+            response = pool.request(
+                "GET",
+                endpoint,
+                fields=params or {},
+                headers=headers,
+                timeout=12,
+                retries=False,
+            )
+            if 200 <= response.status < 400:
+                return response.data.decode("utf-8", errors="replace")
+        except Exception:
+            continue
+        finally:
+            pool.close()
+    return None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -698,13 +730,12 @@ def fetch_epos_select_options(endpoint: str, params: dict | None = None):
     """Fetch an ePOS dropdown list using the current backend route pattern."""
     url = f"{EPOS_BASE_URL}{endpoint}"
     last_error = None
-    response = None
     for attempt in range(3):
         try:
             response = requests.get(
                 url,
                 params=params or {},
-                timeout=30,
+                timeout=12,
                 verify=False,
                 headers=EPOS_HEADERS,
             )
@@ -714,29 +745,17 @@ def fetch_epos_select_options(endpoint: str, params: dict | None = None):
             last_error = exc
             if attempt < 2:
                 import time
-                time.sleep(min(2 ** attempt, 4))
+                time.sleep(attempt + 1)
+    else:
+        fallback_html = fetch_epos_by_ip(endpoint, params)
+        if fallback_html is not None:
+            response = None
+            html = fallback_html
+        else:
+            raise last_error or RuntimeError(f"Could not reach {url}")
 
-    if response is None:
-        fallback_headers = {**EPOS_HEADERS, "Host": "epos.bihar.gov.in"}
-        for ip_address in resolve_epos_ips():
-            try:
-                fallback_response = requests.get(
-                    f"https://{ip_address}{endpoint}",
-                    params=params or {},
-                    timeout=30,
-                    verify=False,
-                    headers=fallback_headers,
-                )
-                fallback_response.raise_for_status()
-                response = fallback_response
-                break
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as exc:
-                last_error = exc
-
-    if response is None:
-        raise last_error or RuntimeError(f"Could not reach {url}")
-
-    html = response.text
+    if response is not None:
+        html = response.text
 
     items = parse_html_options(html)
     if items:
