@@ -5,6 +5,7 @@ import io
 import csv
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import streamlit.web as st_web
 import os
 import ssl
@@ -1651,7 +1652,7 @@ if "left_cards" in locals() and "new_cards" in locals() and "changed_cards" in l
         <div><strong>New:</strong> %s cards</div>
         <div><strong>Changed:</strong> %s cards</div>
     </div>
-    """ % (datetime.now().strftime("%d %b %Y, %I:%M %p"), len(prev_cards), len(curr_cards), len(left_cards), len(new_cards), len(changed_cards))
+    """ % (datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p"), len(prev_cards), len(curr_cards), len(left_cards), len(new_cards), len(changed_cards))
 
     def add_print_table(title, dataframe, card_count):
         if card_count:
