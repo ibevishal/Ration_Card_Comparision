@@ -672,11 +672,33 @@ def parse_html_options(html: str):
     return items
 
 
+def resolve_epos_ips():
+    """Resolve the ePOS host through public DNS-over-HTTPS as a network fallback."""
+    for resolver in ("https://1.1.1.1/dns-query", "https://8.8.8.8/resolve"):
+        try:
+            response = requests.get(
+                resolver,
+                params={"name": "epos.bihar.gov.in", "type": "A"},
+                headers={"Accept": "application/dns-json"},
+                timeout=10,
+                verify=False,
+            )
+            response.raise_for_status()
+            answers = response.json().get("Answer", [])
+            ips = [answer["data"] for answer in answers if answer.get("type") == 1]
+            if ips:
+                return ips
+        except Exception:
+            continue
+    return []
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_epos_select_options(endpoint: str, params: dict | None = None):
     """Fetch an ePOS dropdown list using the current backend route pattern."""
     url = f"{EPOS_BASE_URL}{endpoint}"
     last_error = None
+    response = None
     for attempt in range(5):
         try:
             response = requests.get(
@@ -693,9 +715,25 @@ def fetch_epos_select_options(endpoint: str, params: dict | None = None):
             if attempt < 4:
                 import time
                 time.sleep(min(2 ** attempt, 8))
-            else:
-                raise
-    else:
+
+    if response is None:
+        fallback_headers = {**EPOS_HEADERS, "Host": "epos.bihar.gov.in"}
+        for ip_address in resolve_epos_ips():
+            try:
+                fallback_response = requests.get(
+                    f"https://{ip_address}{endpoint}",
+                    params=params or {},
+                    timeout=30,
+                    verify=False,
+                    headers=fallback_headers,
+                )
+                fallback_response.raise_for_status()
+                response = fallback_response
+                break
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as exc:
+                last_error = exc
+
+    if response is None:
         raise last_error or RuntimeError(f"Could not reach {url}")
 
     html = response.text
