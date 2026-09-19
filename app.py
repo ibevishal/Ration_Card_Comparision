@@ -581,7 +581,8 @@ def fetch_epos_by_ip(endpoint: str, params: dict | None = None):
     return None
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+# Keep District, AFSO, and FPS lists cached for 30 days.
+@st.cache_data(ttl=30 * 24 * 60 * 60, show_spinner=False)
 def fetch_epos_select_options(endpoint: str, params: dict | None = None):
     """Fetch an ePOS dropdown list using the current backend route pattern."""
     url = f"{EPOS_BASE_URL}{endpoint}"
