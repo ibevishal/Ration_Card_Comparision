@@ -672,11 +672,12 @@ def parse_html_options(html: str):
     return items
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_epos_select_options(endpoint: str, params: dict | None = None):
     """Fetch an ePOS dropdown list using the current backend route pattern."""
     url = f"{EPOS_BASE_URL}{endpoint}"
     last_error = None
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             response = requests.get(
                 url,
@@ -689,9 +690,9 @@ def fetch_epos_select_options(endpoint: str, params: dict | None = None):
             break
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as exc:
             last_error = exc
-            if attempt < 2:
+            if attempt < 4:
                 import time
-                time.sleep(2 ** attempt)
+                time.sleep(min(2 ** attempt, 8))
             else:
                 raise
     else:
