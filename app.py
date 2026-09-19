@@ -50,7 +50,7 @@ st.set_option("client.toolbarMode", "minimal")
 
 
 def show_error_with_support(message):
-    st.error(message)
+    st.error(message or "Something went wrong. Please contact support.")
     st.markdown(
         """
         <a href="https://instagram.com/ibe.vishal" target="_blank"
@@ -809,6 +809,24 @@ def parse_epos_report_to_cards(report_data):
 
 def render_epos_automation_mode():
     """Fetch previous and current month data from Bihar ePOS and compare them."""
+    def scroll_to_step(step_id):
+        st.session_state["automation_scroll_target"] = step_id
+
+    def render_scroll_script():
+        target = st.session_state.pop("automation_scroll_target", None)
+        if target:
+            st.html(
+                f"""
+                <script>
+                    window.setTimeout(function() {{
+                        const target = document.getElementById({target!r});
+                        if (target) target.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                    }}, 150);
+                </script>
+                """,
+                unsafe_allow_javascript=True,
+            )
+
     st.subheader("Automation from Bihar ePOS")
     st.caption("Fetch and compare data for previous month vs current month from the live Bihar ePOS backend.")
     
@@ -832,7 +850,7 @@ def render_epos_automation_mode():
 
     district_options = st.session_state.get("epos_districts", [])
     if not district_options:
-        st.warning("No district list was returned. Please reload the app and try again.")
+        show_error_with_support("No district list was returned.")
         return
 
     district_labels = [item.get("label") or item.get("value") or "Select" for item in district_options]
@@ -845,14 +863,44 @@ def render_epos_automation_mode():
                 return index
         return 0
 
-    def selectbox_with_default(label, options, default_index, key, format_func=None):
+    def clear_invalid_selection(key, options):
+        if st.session_state.get(key) not in options:
+            st.session_state.pop(key, None)
+
+    def reset_after_district_change():
+        st.session_state.pop("afso_auto", None)
+        st.session_state.pop("fps_auto", None)
+        st.session_state["epos_afso"] = []
+        st.session_state["epos_fps"] = []
+        st.session_state["epos_prev_data"] = {}
+        st.session_state["epos_curr_data"] = {}
+        st.session_state.pop("loaded_afso_code", None)
+        st.session_state.pop("last_auto_fetch_signature", None)
+
+    def reset_after_afso_change():
+        st.session_state.pop("fps_auto", None)
+        st.session_state["epos_fps"] = []
+        st.session_state["epos_prev_data"] = {}
+        st.session_state["epos_curr_data"] = {}
+        st.session_state.pop("last_auto_fetch_signature", None)
+
+    def reset_after_fps_change():
+        st.session_state["epos_prev_data"] = {}
+        st.session_state["epos_curr_data"] = {}
+        st.session_state.pop("last_auto_fetch_signature", None)
+
+    def selectbox_with_default(label, options, default_index, key, format_func=None, hide_label=False, on_change=None):
         selectbox_args = {
             "label": label,
             "options": options,
             "key": key,
         }
+        if hide_label:
+            selectbox_args["label_visibility"] = "collapsed"
         if format_func is not None:
             selectbox_args["format_func"] = format_func
+        if on_change is not None:
+            selectbox_args["on_change"] = on_change
         if key not in st.session_state:
             selectbox_args["index"] = default_index
         return st.selectbox(**selectbox_args)
@@ -862,6 +910,8 @@ def render_epos_automation_mode():
         district_labels,
         preferred_index(district_labels, "Muzaffarpur"),
         "district_auto",
+        hide_label=True,
+        on_change=reset_after_district_change,
     )
     dist_code = district_values[district_labels.index(selected_district_label)]
 
@@ -875,27 +925,33 @@ def render_epos_automation_mode():
         st.session_state.pop("last_auto_fetch_signature", None)
         st.session_state["loaded_dist_code"] = dist_code
 
+    st.markdown('<div id="automation-step-2"></div>', unsafe_allow_html=True)
     st.markdown("### Step 2: Select AFSO")
     if not st.session_state.get("epos_afso"):
         try:
             with st.spinner("Loading AFSO list..."):
                 st.session_state["epos_afso"] = fetch_epos_select_options("/Epos_Spring/Common/getAfso", {"dist_code": str(dist_code)})
+            scroll_to_step("automation-step-2")
         except Exception as exc:
             show_error_with_support(f"AFSO list could not be loaded: {exc}")
             st.session_state["epos_afso"] = []
 
     afso_options = st.session_state.get("epos_afso", [])
     if not afso_options:
-        st.warning("No AFSO list was returned for this district.")
+        show_error_with_support("No AFSO list was returned for this district.")
         return
 
     afso_labels = [item.get("label") or item.get("value") or "Select" for item in afso_options]
     afso_values = [item.get("value") for item in afso_options]
+    afso_widget_key = f"afso_auto_{dist_code}"
+    clear_invalid_selection(afso_widget_key, afso_labels)
     selected_afso_label = selectbox_with_default(
         "AFSO",
         afso_labels,
         preferred_index(afso_labels, "Minapur"),
-        "afso_auto",
+        afso_widget_key,
+        hide_label=True,
+        on_change=reset_after_afso_change,
     )
     afso_code = afso_values[afso_labels.index(selected_afso_label)]
 
@@ -907,30 +963,37 @@ def render_epos_automation_mode():
         st.session_state.pop("last_auto_fetch_signature", None)
         st.session_state["loaded_afso_code"] = afso_code
 
+    st.markdown('<div id="automation-step-3"></div>', unsafe_allow_html=True)
     st.markdown("### Step 3: Select FPS")
     if not st.session_state.get("epos_fps"):
         try:
             with st.spinner("Loading FPS list..."):
                 st.session_state["epos_fps"] = fetch_epos_select_options("/Epos_Spring/Common/getFPSs", {"dist_code": str(dist_code), "afso_code": str(afso_code)})
+            scroll_to_step("automation-step-4")
         except Exception as exc:
             show_error_with_support(f"FPS list could not be loaded: {exc}")
             st.session_state["epos_fps"] = []
 
     fps_options = st.session_state.get("epos_fps", [])
     if not fps_options:
-        st.warning("No FPS list was returned for this AFSO.")
+        show_error_with_support("No FPS list was returned for this AFSO.")
         return
 
     fps_labels = [item.get("label") or item.get("value") or "Select" for item in fps_options]
     fps_values = [item.get("value") for item in fps_options]
+    fps_widget_key = f"fps_auto_{dist_code}_{afso_code}"
+    clear_invalid_selection(fps_widget_key, fps_labels)
     selected_fps_label = selectbox_with_default(
         "FPS",
         fps_labels,
         preferred_index(fps_labels, "121600101779"),
-        "fps_auto",
+        fps_widget_key,
+        hide_label=True,
+        on_change=reset_after_fps_change,
     )
     fps_id = fps_values[fps_labels.index(selected_fps_label)]
 
+    st.markdown('<div id="automation-step-4"></div>', unsafe_allow_html=True)
     st.markdown("### Step 4: Select Date Range")
 
     with st.container():
@@ -1047,20 +1110,20 @@ def render_epos_automation_mode():
             #         st.json(st.session_state.get("epos_curr_raw", {})[:200] if isinstance(st.session_state.get("epos_curr_raw"), str) else st.session_state.get("epos_curr_raw", {}))
             
             if not prev_data:
-                st.warning(f"⚠️ No cards found in previous month response. Raw response: {st.session_state.get('epos_prev_raw', {})}")
-                st.info("The API may have returned data in a different format than expected. Check the raw response above.")
+                show_error_with_support("Selected date range is not supported. Please contact support.")
                 return
             
             if not curr_data:
-                st.warning(f"⚠️ No cards found in current month response. Raw response: {st.session_state.get('epos_curr_raw', {})}")
-                st.info("The API may have returned data in a different format than expected. Check the raw response above.")
+                show_error_with_support("Selected date range is not supported. Please contact support.")
                 return
             
             st.session_state["last_auto_fetch_signature"] = fetch_signature
             st.session_state["trigger_analysis"] = True
             
         except Exception as exc:
-            show_error_with_support(f"❌ Failed to fetch data: {exc}")
+            show_error_with_support("Selected date range is not supported. Please contact support.")
+
+    render_scroll_script()
 
 
 
@@ -1824,7 +1887,6 @@ if "left_cards" in locals() and "new_cards" in locals() and "changed_cards" in l
 
     printable_html = printable_html.replace("`", "\\`").replace("${", "\\${")
     print_frame_html = f"""
-        <div style="padding: 4px 0; color: #555;">Preview is formatted for phone and laptop printing.</div>
         <button onclick="printReport()" style="width: 100%; max-width: 320px; padding: 13px 18px; font-size: 16px;
                 background-color: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer;">
             🖨️ Print / Save PDF
@@ -1847,7 +1909,7 @@ if "left_cards" in locals() and "new_cards" in locals() and "changed_cards" in l
             }}
         </script>
     """
-    st.iframe(f"data:text/html;charset=utf-8,{quote(print_frame_html)}", height=110)
+    st.iframe(f"data:text/html;charset=utf-8,{quote(print_frame_html)}", height=50)
 
 
 # Footer instructions
